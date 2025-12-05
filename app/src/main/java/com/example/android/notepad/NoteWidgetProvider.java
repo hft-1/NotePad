@@ -12,6 +12,16 @@ import android.database.Cursor;
 import android.widget.RemoteViews;
 
 public class NoteWidgetProvider extends AppWidgetProvider {
+    private static final int[] WIDGET_COLORS = new int[] {
+            android.graphics.Color.parseColor("#FFEDE7"),
+            android.graphics.Color.parseColor("#E8F0FE"),
+            android.graphics.Color.parseColor("#E8F5E9"),
+            android.graphics.Color.parseColor("#FFF3E0"),
+            android.graphics.Color.parseColor("#F3E5F5"),
+            android.graphics.Color.parseColor("#FFF9C4"),
+            android.graphics.Color.parseColor("#E0F7FA"),
+            android.graphics.Color.parseColor("#FCE4EC")
+    };
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
         for (int appWidgetId : appWidgetIds) {
@@ -48,8 +58,11 @@ public class NoteWidgetProvider extends AppWidgetProvider {
                 c.close();
             }
             launch = new Intent(Intent.ACTION_EDIT, ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, noteId));
+            int idx = (int) (Math.abs(noteId) % WIDGET_COLORS.length);
+            views.setInt(R.id.widget_root, "setBackgroundColor", WIDGET_COLORS[idx]);
         } else {
             launch = new Intent(context, NotesList.class);
+            views.setInt(R.id.widget_root, "setBackgroundColor", android.graphics.Color.parseColor("#FFFFFF"));
         }
         views.setTextViewText(R.id.widget_title, title);
         views.setTextViewText(R.id.widget_body, body);

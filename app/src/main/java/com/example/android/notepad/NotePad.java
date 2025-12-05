@@ -156,6 +156,7 @@ public final class NotePad {
          * <P>Type: INTEGER</P>
          */
         public static final String COLUMN_NAME_PINNED = "pinned";
+        public static final String COLUMN_NAME_REMINDER_MILLIS = "reminder";
     }
 
     /**

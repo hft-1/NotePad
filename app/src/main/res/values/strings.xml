@@ -34,6 +34,8 @@
     <string name="menu_change_note_theme">Change note theme background</string>
     <string name="menu_export_note">Export note</string>
     <string name="menu_change_theme">Change theme background</string>
+    <string name="menu_set_reminder">Set reminder</string>
+    <string name="menu_clear_reminder">Clear reminder</string>
 
     <string name="button_ok">OK</string>
     <string name="text_title">Title:</string>

@@ -58,6 +58,12 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import android.graphics.Bitmap;
 import android.util.TypedValue;
+import android.widget.LinearLayout;
+import android.widget.DatePicker;
+import android.widget.TimePicker;
+import java.util.Calendar;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 
 /**
  * This Activity handles "editing" a note, where editing is responding to
@@ -103,6 +109,16 @@ public class NoteEditor extends Activity {
     private TextView mWordCountView;
     private String mOriginalContent;
     private int mEditorTextColor;
+    private final int[] SHORTCUT_COLORS = new int[] {
+            Color.parseColor("#FFEDE7"),
+            Color.parseColor("#E8F0FE"),
+            Color.parseColor("#E8F5E9"),
+            Color.parseColor("#FFF3E0"),
+            Color.parseColor("#F3E5F5"),
+            Color.parseColor("#FFF9C4"),
+            Color.parseColor("#E0F7FA"),
+            Color.parseColor("#FCE4EC")
+    };
 
     /**
      * Defines a custom EditText View that draws lines between each line of text that is displayed.
@@ -526,6 +542,12 @@ public class NoteEditor extends Activity {
         } else if (id == R.id.menu_send_to_home) {
             showSendToHomeChooser();
             return true;
+        } else if (id == R.id.menu_set_reminder) {
+            showReminderDialog();
+            return true;
+        } else if (id == R.id.menu_clear_reminder) {
+            clearNoteReminder();
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -870,7 +892,9 @@ public class NoteEditor extends Activity {
         if (height > max) height = max;
         Bitmap bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bmp);
-        canvas.drawColor(Color.WHITE);
+        long nid = mUri != null ? ContentUris.parseId(mUri) : System.currentTimeMillis();
+        int idx = (int) (Math.abs(nid) % SHORTCUT_COLORS.length);
+        canvas.drawColor(SHORTCUT_COLORS[idx]);
         canvas.save();
         canvas.translate(dp(8), dp(8));
         layoutTitle.draw(canvas);
@@ -916,10 +940,118 @@ public class NoteEditor extends Activity {
      */
     private final void deleteNote() {
         if (mCursor != null) {
+            clearNoteReminder();
             mCursor.close();
             mCursor = null;
             getContentResolver().delete(mUri, null, null);
             mText.setText("");
         }
+    }
+
+    private void showReminderDialog() {
+        final Calendar cal = Calendar.getInstance();
+        final TextView preview = new TextView(this);
+        preview.setPadding(dp(16), dp(12), dp(16), dp(12));
+        preview.setTextColor(Color.parseColor("#212121"));
+        preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+
+        final DatePicker datePicker = new DatePicker(this);
+        final TimePicker timePicker = new TimePicker(this);
+        timePicker.setIs24HourView(true);
+
+        updatePreview(preview, cal);
+        datePicker.init(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH), new DatePicker.OnDateChangedListener() {
+            @Override
+            public void onDateChanged(DatePicker view, int year, int monthOfYear, int dayOfMonth) {
+                cal.set(Calendar.YEAR, year);
+                cal.set(Calendar.MONTH, monthOfYear);
+                cal.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+                updatePreview(preview, cal);
+            }
+        });
+        timePicker.setOnTimeChangedListener(new TimePicker.OnTimeChangedListener() {
+            @Override
+            public void onTimeChanged(TimePicker view, int hourOfDay, int minute) {
+                cal.set(Calendar.HOUR_OF_DAY, hourOfDay);
+                cal.set(Calendar.MINUTE, minute);
+                cal.set(Calendar.SECOND, 0);
+                cal.set(Calendar.MILLISECOND, 0);
+                updatePreview(preview, cal);
+            }
+        });
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.addView(preview);
+        container.addView(datePicker);
+        container.addView(timePicker);
+
+        new AlertDialog.Builder(this)
+                .setTitle("设置提醒时间")
+                .setView(container)
+                .setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.dismiss();
+                    }
+                })
+                .setPositiveButton("确定", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        long when = cal.getTimeInMillis();
+                        long now = System.currentTimeMillis();
+                        if (when <= now) {
+                            Toast.makeText(NoteEditor.this, "所选时间已过期", Toast.LENGTH_LONG).show();
+                        } else {
+                            scheduleNoteReminder(when);
+                            Toast.makeText(NoteEditor.this, "提醒时间设置成功", Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .show();
+    }
+
+    private void updatePreview(TextView preview, Calendar cal) {
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("M/d  EEEE HH ' h ' mm ' min'", java.util.Locale.ENGLISH);
+        preview.setText(sdf.format(new java.util.Date(cal.getTimeInMillis())));
+    }
+
+    private void scheduleNoteReminder(long when) {
+        if (mUri == null) return;
+        long id = ContentUris.parseId(mUri);
+        android.content.ContentValues values = new android.content.ContentValues();
+        values.put(NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS, when);
+        getContentResolver().update(mUri, values, null, null);
+        Intent i = new Intent(this, NoteReminderReceiver.class);
+        i.setData(ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, id));
+        i.putExtra("note_id", id);
+        PendingIntent pi = PendingIntent.getBroadcast(this, (int) id, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        if (am != null) {
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+            } else if (android.os.Build.VERSION.SDK_INT >= 19) {
+                am.setExact(AlarmManager.RTC_WAKEUP, when, pi);
+            } else {
+                am.set(AlarmManager.RTC_WAKEUP, when, pi);
+            }
+        }
+    }
+
+    private void clearNoteReminder() {
+        if (mUri == null) return;
+        long id = ContentUris.parseId(mUri);
+        android.content.ContentValues values = new android.content.ContentValues();
+        values.put(NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS, 0);
+        getContentResolver().update(mUri, values, null, null);
+        Intent i = new Intent(this, NoteReminderReceiver.class);
+        i.setData(ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, id));
+        i.putExtra("note_id", id);
+        PendingIntent pi = PendingIntent.getBroadcast(this, (int) id, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        if (am != null) {
+            am.cancel(pi);
+        }
+        Toast.makeText(this, "已清除提醒", Toast.LENGTH_LONG).show();
     }
 }

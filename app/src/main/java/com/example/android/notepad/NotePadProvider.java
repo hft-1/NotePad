@@ -63,7 +63,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
     /**
      * The database version
      */
-    private static final int DATABASE_VERSION = 5;
+    private static final int DATABASE_VERSION = 6;
 
     /**
      * A projection map used to select columns from the database
@@ -164,6 +164,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE);
         sNotesProjectionMap.put(NotePad.Notes.COLUMN_NAME_PINNED, NotePad.Notes.COLUMN_NAME_PINNED);
+        sNotesProjectionMap.put(NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS, NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS);
 
         /*
          * Creates an initializes a projection map for handling Live Folders
@@ -215,7 +216,8 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                    + NotePad.Notes.COLUMN_NAME_NOTE + " TEXT,"
                    + NotePad.Notes.COLUMN_NAME_CREATE_DATE + " INTEGER,"
                    + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER,"
-                   + NotePad.Notes.COLUMN_NAME_PINNED + " INTEGER"
+                   + NotePad.Notes.COLUMN_NAME_PINNED + " INTEGER,"
+                   + NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS + " INTEGER"
                    + ");");
 
            db.execSQL("CREATE TABLE " + NotePad.ToDos.TABLE_NAME + " ("
@@ -250,6 +252,11 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
            if (oldVersion < 4) {
                try {
                    db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME + " ADD COLUMN " + NotePad.Notes.COLUMN_NAME_PINNED + " INTEGER DEFAULT 0");
+               } catch (Exception ignored) {}
+           }
+           if (oldVersion < 6) {
+               try {
+                   db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME + " ADD COLUMN " + NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS + " INTEGER DEFAULT 0");
                } catch (Exception ignored) {}
            }
        }
@@ -594,6 +601,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
             }
             if (values.containsKey(NotePad.Notes.COLUMN_NAME_PINNED) == false) {
                 values.put(NotePad.Notes.COLUMN_NAME_PINNED, 0);
+            }
+            if (values.containsKey(NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS) == false) {
+                values.put(NotePad.Notes.COLUMN_NAME_REMINDER_MILLIS, 0);
             }
         } else {
             if (values.containsKey(NotePad.ToDos.COLUMN_NAME_CREATE_DATE) == false) {

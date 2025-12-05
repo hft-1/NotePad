@@ -115,7 +115,13 @@
         <activity android:name="ToDoList" android:label="To-Do List" />
 
         <receiver android:name="TodoReminderReceiver" />
+        <receiver android:name="NoteReminderReceiver" />
         <receiver android:name="TodoBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name="NoteBootReceiver">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>

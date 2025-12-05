@@ -63,7 +63,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
     /**
      * The database version
      */
-    private static final int DATABASE_VERSION = 2;
+    private static final int DATABASE_VERSION = 5;
 
     /**
      * A projection map used to select columns from the database
@@ -74,6 +74,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
      * A projection map used to select columns from the database
      */
     private static HashMap<String, String> sLiveFolderProjectionMap;
+    private static HashMap<String, String> sTodosProjectionMap;
 
     /**
      * Standard projection for the interesting columns of a normal note.
@@ -95,6 +96,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
     // The incoming URI matches the Note ID URI pattern
     private static final int NOTE_ID = 2;
+
+    private static final int TODOS = 10;
+    private static final int TODO_ID = 11;
 
     // The incoming URI matches the Live Folder URI pattern
     private static final int LIVE_FOLDER_NOTES = 3;
@@ -130,6 +134,10 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // live folder operation
         sUriMatcher.addURI(NotePad.AUTHORITY, "live_folders/notes", LIVE_FOLDER_NOTES);
 
+        // To-dos
+        sUriMatcher.addURI(NotePad.AUTHORITY, "todos", TODOS);
+        sUriMatcher.addURI(NotePad.AUTHORITY, "todos/#", TODO_ID);
+
         /*
          * Creates and initializes a projection map that returns all columns
          */
@@ -155,6 +163,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         sNotesProjectionMap.put(
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE);
+        sNotesProjectionMap.put(NotePad.Notes.COLUMN_NAME_PINNED, NotePad.Notes.COLUMN_NAME_PINNED);
 
         /*
          * Creates an initializes a projection map for handling Live Folders
@@ -169,6 +178,15 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // Maps "NAME" to "title AS NAME"
         sLiveFolderProjectionMap.put(LiveFolders.NAME, NotePad.Notes.COLUMN_NAME_TITLE + " AS " +
             LiveFolders.NAME);
+
+        // To-dos projection map
+        sTodosProjectionMap = new HashMap<String, String>();
+        sTodosProjectionMap.put(NotePad.ToDos._ID, NotePad.ToDos._ID);
+        sTodosProjectionMap.put(NotePad.ToDos.COLUMN_NAME_TEXT, NotePad.ToDos.COLUMN_NAME_TEXT);
+        sTodosProjectionMap.put(NotePad.ToDos.COLUMN_NAME_REMINDER_MILLIS, NotePad.ToDos.COLUMN_NAME_REMINDER_MILLIS);
+        sTodosProjectionMap.put(NotePad.ToDos.COLUMN_NAME_DONE, NotePad.ToDos.COLUMN_NAME_DONE);
+        sTodosProjectionMap.put(NotePad.ToDos.COLUMN_NAME_CREATE_DATE, NotePad.ToDos.COLUMN_NAME_CREATE_DATE);
+        sTodosProjectionMap.put(NotePad.ToDos.COLUMN_NAME_MODIFICATION_DATE, NotePad.ToDos.COLUMN_NAME_MODIFICATION_DATE);
     }
 
     /**
@@ -196,7 +214,17 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                    + NotePad.Notes.COLUMN_NAME_TITLE + " TEXT,"
                    + NotePad.Notes.COLUMN_NAME_NOTE + " TEXT,"
                    + NotePad.Notes.COLUMN_NAME_CREATE_DATE + " INTEGER,"
-                   + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER"
+                   + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER,"
+                   + NotePad.Notes.COLUMN_NAME_PINNED + " INTEGER"
+                   + ");");
+
+           db.execSQL("CREATE TABLE " + NotePad.ToDos.TABLE_NAME + " ("
+                   + NotePad.ToDos._ID + " INTEGER PRIMARY KEY,"
+                   + NotePad.ToDos.COLUMN_NAME_TEXT + " TEXT,"
+                   + NotePad.ToDos.COLUMN_NAME_REMINDER_MILLIS + " INTEGER,"
+                   + NotePad.ToDos.COLUMN_NAME_DONE + " INTEGER,"
+                   + NotePad.ToDos.COLUMN_NAME_CREATE_DATE + " INTEGER,"
+                   + NotePad.ToDos.COLUMN_NAME_MODIFICATION_DATE + " INTEGER"
                    + ");");
        }
 
@@ -209,16 +237,21 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         */
        @Override
        public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-
-           // Logs that the database is being upgraded
-           Log.w(TAG, "Upgrading database from version " + oldVersion + " to "
-                   + newVersion + ", which will destroy all old data");
-
-           // Kills the table and existing data
-           db.execSQL("DROP TABLE IF EXISTS notes");
-
-           // Recreates the database with a new version
-           onCreate(db);
+           if (oldVersion < 3) {
+               db.execSQL("CREATE TABLE IF NOT EXISTS " + NotePad.ToDos.TABLE_NAME + " ("
+                       + NotePad.ToDos._ID + " INTEGER PRIMARY KEY,"
+                       + NotePad.ToDos.COLUMN_NAME_TEXT + " TEXT,"
+                       + NotePad.ToDos.COLUMN_NAME_REMINDER_MILLIS + " INTEGER,"
+                       + NotePad.ToDos.COLUMN_NAME_DONE + " INTEGER,"
+                       + NotePad.ToDos.COLUMN_NAME_CREATE_DATE + " INTEGER,"
+                       + NotePad.ToDos.COLUMN_NAME_MODIFICATION_DATE + " INTEGER"
+                       + ");");
+           }
+           if (oldVersion < 4) {
+               try {
+                   db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME + " ADD COLUMN " + NotePad.Notes.COLUMN_NAME_PINNED + " INTEGER DEFAULT 0");
+               } catch (Exception ignored) {}
+           }
        }
    }
 
@@ -254,7 +287,6 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
        // Constructs a new query builder and sets its table name
        SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
-       qb.setTables(NotePad.Notes.TABLE_NAME);
 
        /**
         * Choose the projection and adjust the "where" clause based on URI pattern-matching.
@@ -262,6 +294,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
        switch (sUriMatcher.match(uri)) {
            // If the incoming URI is for notes, chooses the Notes projection
            case NOTES:
+               qb.setTables(NotePad.Notes.TABLE_NAME);
                qb.setProjectionMap(sNotesProjectionMap);
                break;
 
@@ -270,6 +303,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
             * it selects that single note
             */
            case NOTE_ID:
+               qb.setTables(NotePad.Notes.TABLE_NAME);
                qb.setProjectionMap(sNotesProjectionMap);
                qb.appendWhere(
                    NotePad.Notes._ID +    // the name of the ID column
@@ -280,7 +314,21 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
            case LIVE_FOLDER_NOTES:
                // If the incoming URI is from a live folder, chooses the live folder projection.
+               qb.setTables(NotePad.Notes.TABLE_NAME);
                qb.setProjectionMap(sLiveFolderProjectionMap);
+               break;
+
+           case TODOS:
+               qb.setTables(NotePad.ToDos.TABLE_NAME);
+               qb.setProjectionMap(sTodosProjectionMap);
+               break;
+
+           case TODO_ID:
+               qb.setTables(NotePad.ToDos.TABLE_NAME);
+               qb.setProjectionMap(sTodosProjectionMap);
+               qb.appendWhere(
+                       NotePad.ToDos._ID + "=" +
+                       uri.getPathSegments().get(NotePad.ToDos.TODO_ID_PATH_POSITION));
                break;
 
            default:
@@ -292,7 +340,12 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
        String orderBy;
        // If no sort order is specified, uses the default
        if (TextUtils.isEmpty(sortOrder)) {
-           orderBy = NotePad.Notes.DEFAULT_SORT_ORDER;
+           int match = sUriMatcher.match(uri);
+           if (match == NOTES || match == NOTE_ID || match == LIVE_FOLDER_NOTES) {
+               orderBy = NotePad.Notes.DEFAULT_SORT_ORDER;
+           } else {
+               orderBy = NotePad.ToDos.DEFAULT_SORT_ORDER;
+           }
        } else {
            // otherwise, uses the incoming sort order
            orderBy = sortOrder;
@@ -345,6 +398,12 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
            // If the pattern is for note IDs, returns the note ID content type.
            case NOTE_ID:
                return NotePad.Notes.CONTENT_ITEM_TYPE;
+
+           case TODOS:
+               return NotePad.ToDos.CONTENT_TYPE;
+
+           case TODO_ID:
+               return NotePad.ToDos.CONTENT_ITEM_TYPE;
 
            // If the URI pattern doesn't match any permitted patterns, throws an exception.
            default:
@@ -499,7 +558,8 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
     public Uri insert(Uri uri, ContentValues initialValues) {
 
         // Validates the incoming URI. Only the full provider URI is allowed for inserts.
-        if (sUriMatcher.match(uri) != NOTES) {
+        int match = sUriMatcher.match(uri);
+        if (match != NOTES && match != TODOS) {
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
 
@@ -518,48 +578,56 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // Gets the current system time in milliseconds
         Long now = Long.valueOf(System.currentTimeMillis());
 
-        // If the values map doesn't contain the creation date, sets the value to the current time.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_CREATE_DATE) == false) {
-            values.put(NotePad.Notes.COLUMN_NAME_CREATE_DATE, now);
-        }
-
-        // If the values map doesn't contain the modification date, sets the value to the current
-        // time.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE) == false) {
-            values.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, now);
-        }
-
-        // If the values map doesn't contain a title, sets the value to the default title.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_TITLE) == false) {
-            Resources r = Resources.getSystem();
-            values.put(NotePad.Notes.COLUMN_NAME_TITLE, r.getString(android.R.string.untitled));
-        }
-
-        // If the values map doesn't contain note text, sets the value to an empty string.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_NOTE) == false) {
-            values.put(NotePad.Notes.COLUMN_NAME_NOTE, "");
+        if (match == NOTES) {
+            if (values.containsKey(NotePad.Notes.COLUMN_NAME_CREATE_DATE) == false) {
+                values.put(NotePad.Notes.COLUMN_NAME_CREATE_DATE, now);
+            }
+            if (values.containsKey(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE) == false) {
+                values.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, now);
+            }
+            if (values.containsKey(NotePad.Notes.COLUMN_NAME_TITLE) == false) {
+                Resources r = Resources.getSystem();
+                values.put(NotePad.Notes.COLUMN_NAME_TITLE, r.getString(android.R.string.untitled));
+            }
+            if (values.containsKey(NotePad.Notes.COLUMN_NAME_NOTE) == false) {
+                values.put(NotePad.Notes.COLUMN_NAME_NOTE, "");
+            }
+            if (values.containsKey(NotePad.Notes.COLUMN_NAME_PINNED) == false) {
+                values.put(NotePad.Notes.COLUMN_NAME_PINNED, 0);
+            }
+        } else {
+            if (values.containsKey(NotePad.ToDos.COLUMN_NAME_CREATE_DATE) == false) {
+                values.put(NotePad.ToDos.COLUMN_NAME_CREATE_DATE, now);
+            }
+            if (values.containsKey(NotePad.ToDos.COLUMN_NAME_MODIFICATION_DATE) == false) {
+                values.put(NotePad.ToDos.COLUMN_NAME_MODIFICATION_DATE, now);
+            }
+            if (values.containsKey(NotePad.ToDos.COLUMN_NAME_TEXT) == false) {
+                values.put(NotePad.ToDos.COLUMN_NAME_TEXT, "");
+            }
+            if (values.containsKey(NotePad.ToDos.COLUMN_NAME_DONE) == false) {
+                values.put(NotePad.ToDos.COLUMN_NAME_DONE, 0);
+            }
         }
 
         // Opens the database object in "write" mode.
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
 
         // Performs the insert and returns the ID of the new note.
-        long rowId = db.insert(
-            NotePad.Notes.TABLE_NAME,        // The table to insert into.
-            NotePad.Notes.COLUMN_NAME_NOTE,  // A hack, SQLite sets this column value to null
-                                             // if values is empty.
-            values                           // A map of column names, and the values to insert
-                                             // into the columns.
-        );
+        long rowId;
+        if (match == NOTES) {
+            rowId = db.insert(NotePad.Notes.TABLE_NAME, NotePad.Notes.COLUMN_NAME_NOTE, values);
+        } else {
+            rowId = db.insert(NotePad.ToDos.TABLE_NAME, NotePad.ToDos.COLUMN_NAME_TEXT, values);
+        }
 
         // If the insert succeeded, the row ID exists.
         if (rowId > 0) {
-            // Creates a URI with the note ID pattern and the new row ID appended to it.
-            Uri noteUri = ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, rowId);
-
-            // Notifies observers registered against this provider that the data changed.
-            getContext().getContentResolver().notifyChange(noteUri, null);
-            return noteUri;
+            Uri outUri = (match == NOTES)
+                    ? ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, rowId)
+                    : ContentUris.withAppendedId(NotePad.ToDos.CONTENT_ID_URI_BASE, rowId);
+            getContext().getContentResolver().notifyChange(outUri, null);
+            return outUri;
         }
 
         // If the insert didn't succeed, then the rowID is <= 0. Throws an exception.
@@ -628,6 +696,21 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                     finalWhere,                // The final WHERE clause
                     whereArgs                  // The incoming where clause values.
                 );
+                break;
+
+            case TODOS:
+                count = db.delete(
+                        NotePad.ToDos.TABLE_NAME,
+                        where,
+                        whereArgs
+                );
+                break;
+
+            case TODO_ID:
+                finalWhere = NotePad.ToDos._ID + " = " +
+                        uri.getPathSegments().get(NotePad.ToDos.TODO_ID_PATH_POSITION);
+                if (where != null) finalWhere = finalWhere + " AND " + where;
+                count = db.delete(NotePad.ToDos.TABLE_NAME, finalWhere, whereArgs);
                 break;
 
             // If the incoming pattern is invalid, throws an exception.
@@ -722,6 +805,17 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                     whereArgs                 // The where clause column values to select on, or
                                               // null if the values are in the where argument.
                 );
+                break;
+
+            case TODOS:
+                count = db.update(NotePad.ToDos.TABLE_NAME, values, where, whereArgs);
+                break;
+
+            case TODO_ID:
+                finalWhere = NotePad.ToDos._ID + " = " +
+                        uri.getPathSegments().get(NotePad.ToDos.TODO_ID_PATH_POSITION);
+                if (where != null) finalWhere = finalWhere + " AND " + where;
+                count = db.update(NotePad.ToDos.TABLE_NAME, values, finalWhere, whereArgs);
                 break;
             // If the incoming pattern is invalid, throws an exception.
             default:

@@ -150,5 +150,42 @@ public final class NotePad {
          * <P>Type: INTEGER (long from System.curentTimeMillis())</P>
          */
         public static final String COLUMN_NAME_MODIFICATION_DATE = "modified";
+
+        /**
+         * Column name for pinned state (0/1)
+         * <P>Type: INTEGER</P>
+         */
+        public static final String COLUMN_NAME_PINNED = "pinned";
+    }
+
+    /**
+     * To-dos table contract
+     */
+    public static final class ToDos implements BaseColumns {
+
+        private ToDos() {}
+
+        public static final String TABLE_NAME = "todos";
+
+        private static final String SCHEME = "content://";
+        private static final String PATH_TODOS = "/todos";
+        private static final String PATH_TODO_ID = "/todos/";
+
+        public static final int TODO_ID_PATH_POSITION = 1;
+
+        public static final Uri CONTENT_URI = Uri.parse(SCHEME + AUTHORITY + PATH_TODOS);
+        public static final Uri CONTENT_ID_URI_BASE = Uri.parse(SCHEME + AUTHORITY + PATH_TODO_ID);
+        public static final Uri CONTENT_ID_URI_PATTERN = Uri.parse(SCHEME + AUTHORITY + PATH_TODO_ID + "/#");
+
+        public static final String CONTENT_TYPE = "vnd.android.cursor.dir/vnd.google.todo";
+        public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/vnd.google.todo";
+
+        public static final String DEFAULT_SORT_ORDER = "modified DESC";
+
+        public static final String COLUMN_NAME_TEXT = "text";
+        public static final String COLUMN_NAME_REMINDER_MILLIS = "reminder";
+        public static final String COLUMN_NAME_DONE = "done"; // 0/1
+        public static final String COLUMN_NAME_CREATE_DATE = "created";
+        public static final String COLUMN_NAME_MODIFICATION_DATE = "modified";
     }
 }

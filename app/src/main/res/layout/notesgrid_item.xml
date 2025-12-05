@@ -1,35 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright (C) 2010 The Android Open Source Project
-
-     Licensed under the Apache License, Version 2.0 (the "License");
-     you may not use this file except in compliance with the License.
-     You may obtain a copy of the License at
-  
-          http://www.apache.org/licenses/LICENSE-2.0
-  
-     Unless required by applicable law or agreed to in writing, software
-     distributed under the License is distributed on an "AS IS" BASIS,
-     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-     See the License for the specific language governing permissions and
-     limitations under the License.
--->
-
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="?android:attr/listPreferredItemHeight"
-    android:paddingLeft="5dip"
-    android:paddingRight="5dip">
+    android:layout_height="wrap_content"
+    android:padding="8dp">
 
     <TextView
         android:id="@+id/title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
-        android:layout_toStartOf="@id/btn_pin"
-        android:textAppearance="?android:attr/textAppearanceLarge"
+        android:layout_toStartOf="@id/pin_container"
+        android:textAppearance="?android:attr/textAppearanceMedium"
         android:singleLine="true"
-        android:ellipsize="end"
-        android:paddingTop="8dp"/>
+        android:ellipsize="end"/>
 
     <TextView
         android:id="@+id/timestamp"
@@ -38,8 +21,7 @@
         android:layout_alignParentBottom="true"
         android:layout_alignParentStart="true"
         android:textAppearance="?android:attr/textAppearanceSmall"
-        android:textColor="#888888"
-        android:paddingBottom="8dp"/>
+        android:textColor="#888888"/>
 
     <LinearLayout
         android:id="@+id/pin_container"
@@ -48,8 +30,7 @@
         android:layout_centerVertical="true"
         android:layout_alignParentEnd="true"
         android:orientation="vertical"
-        android:gravity="center"
-        android:padding="4dp">
+        android:gravity="center">
 
         <ImageView
             android:id="@+id/pin_icon"

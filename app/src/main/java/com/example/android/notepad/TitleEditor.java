@@ -140,8 +140,9 @@ public class TitleEditor extends Activity {
             // Creates a values map for updating the provider.
             ContentValues values = new ContentValues();
 
-            // In the values map, sets the title to the current contents of the edit box.
+            // In the values map, sets the title and updates modification timestamp
             values.put(NotePad.Notes.COLUMN_NAME_TITLE, mText.getText().toString());
+            values.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, System.currentTimeMillis());
 
             /*
              * Updates the provider with the note's new title.

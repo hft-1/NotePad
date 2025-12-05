@@ -12,4 +12,22 @@
           android:icon="@drawable/ic_menu_compose"
           android:title="@string/menu_paste"
           android:alphabeticShortcut='p' />
+    <item android:id="@+id/menu_search"
+          android:icon="@android:drawable/ic_menu_search"
+          android:title="@string/menu_search"
+          android:showAsAction="always|collapseActionView"
+          android:actionViewClass="android.widget.SearchView" />
+    <item android:id="@+id/menu_change_theme"
+          android:icon="@drawable/ic_menu_edit"
+          android:title="@string/menu_change_theme"
+          android:showAsAction="never" />
+    <item android:id="@+id/menu_layout"
+          android:title="笔记表格布局"
+          android:showAsAction="never" />
+    <item android:id="@+id/menu_sort"
+          android:title="排序方式"
+          android:showAsAction="never" />
+    <item android:id="@+id/menu_font_size"
+          android:title="文字大小"
+          android:showAsAction="never" />
 </menu>

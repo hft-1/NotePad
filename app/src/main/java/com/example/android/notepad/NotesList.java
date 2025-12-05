@@ -38,6 +38,18 @@ import android.view.ContextMenu.ContextMenuInfo;
 import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.SimpleCursorAdapter;
+import android.widget.SearchView;
+import android.widget.FilterQueryProvider;
+import android.widget.Button;
+import android.widget.GridView;
+import android.content.SharedPreferences;
+import android.text.TextUtils;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.SharedPreferences;
+import android.content.ContentValues;
 
 
 /**
@@ -55,12 +67,27 @@ public class NotesList extends ListActivity {
     // For logging and debugging
     private static final String TAG = "NotesList";
 
+    private int mTitleColor;
+    private int mTimestampColor;
+    private final int[] ITEM_COLORS = new int[] {
+            Color.parseColor("#FFEDE7"),
+            Color.parseColor("#E8F0FE"),
+            Color.parseColor("#E8F5E9"),
+            Color.parseColor("#FFF3E0"),
+            Color.parseColor("#F3E5F5"),
+            Color.parseColor("#FFF9C4"),
+            Color.parseColor("#E0F7FA"),
+            Color.parseColor("#FCE4EC")
+    };
+
     /**
      * The columns needed by the cursor adapter
      */
     private static final String[] PROJECTION = new String[] {
             NotePad.Notes._ID, // 0
             NotePad.Notes.COLUMN_NAME_TITLE, // 1
+            NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, // 2
+            NotePad.Notes.COLUMN_NAME_PINNED, // 3
     };
 
     /** The index of the title column */
@@ -72,6 +99,8 @@ public class NotesList extends ListActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        setContentView(R.layout.notes_list_screen);
 
         // The user does not need to hold down the key to use menu shortcuts.
         setDefaultKeyMode(DEFAULT_KEYS_SHORTCUT);
@@ -96,6 +125,25 @@ public class NotesList extends ListActivity {
          */
         getListView().setOnCreateContextMenuListener(this);
 
+        Button btnNote = (Button) findViewById(R.id.btn_note);
+        Button btnTodo = (Button) findViewById(R.id.btn_todo);
+        if (btnNote != null) {
+            btnNote.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    startActivity(new Intent(NotesList.this, NotesList.class));
+                }
+            });
+        }
+        if (btnTodo != null) {
+            btnTodo.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    startActivity(new Intent(NotesList.this, ToDoList.class));
+                }
+            });
+        }
+
         /* Performs a managed query. The Activity handles closing and requerying the cursor
          * when needed.
          *
@@ -106,7 +154,7 @@ public class NotesList extends ListActivity {
             PROJECTION,                       // Return the note ID and title for each note.
             null,                             // No where clause, return all records.
             null,                             // No where clause, therefore no where column values.
-            NotePad.Notes.DEFAULT_SORT_ORDER  // Use the default sort order.
+            currentSortOrder()
         );
 
         /*
@@ -117,25 +165,143 @@ public class NotesList extends ListActivity {
          * value will appear in the ListView.
          */
 
-        // The names of the cursor columns to display in the view, initialized to the title column
-        String[] dataColumns = { NotePad.Notes.COLUMN_NAME_TITLE } ;
+        // The names of the cursor columns to display in the view
+        String[] dataColumns = {
+                NotePad.Notes.COLUMN_NAME_TITLE,
+                NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
+                NotePad.Notes.COLUMN_NAME_PINNED
+        };
 
-        // The view IDs that will display the cursor columns, initialized to the TextView in
-        // noteslist_item.xml
-        int[] viewIDs = { android.R.id.text1 };
+        // The view IDs that will display the cursor columns
+        int[] viewIDs = { R.id.title, R.id.timestamp, R.id.btn_pin };
 
         // Creates the backing adapter for the ListView.
         SimpleCursorAdapter adapter
             = new SimpleCursorAdapter(
-                      this,                             // The Context for the ListView
-                      R.layout.noteslist_item,          // Points to the XML for a list item
-                      cursor,                           // The cursor to get items from
+                      this,
+                      R.layout.noteslist_item,
+                      cursor,
                       dataColumns,
                       viewIDs
               );
 
+        // Format the modification date as "yyyy/M/d HH：mm" and bind to timestamp view
+        adapter.setViewBinder(new SimpleCursorAdapter.ViewBinder() {
+            @Override
+            public boolean setViewValue(View view, Cursor cursor, int columnIndex) {
+                if (view.getId() == R.id.timestamp) {
+                    long millis = cursor.getLong(columnIndex);
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy/M/d HH：mm", java.util.Locale.getDefault());
+                    String formatted = sdf.format(new java.util.Date(millis));
+                    android.widget.TextView tv = (android.widget.TextView) view;
+                    tv.setTextColor(mTimestampColor);
+                    tv.setText(formatted);
+                    int idCol = cursor.getColumnIndex(NotePad.Notes._ID);
+                    if (idCol != -1) {
+                        long noteId = cursor.getLong(idCol);
+                        int idx = (int) (Math.abs(noteId) % ITEM_COLORS.length);
+                        Object parent = view.getParent();
+                        if (parent instanceof View) {
+                            ((View) parent).setBackgroundColor(ITEM_COLORS[idx]);
+                        }
+                        // Ensure title text color is readable on pastel background
+                        View titleView = ((View) parent).findViewById(R.id.title);
+                        if (titleView instanceof android.widget.TextView) {
+                            ((android.widget.TextView) titleView).setTextColor(Color.parseColor("#212121"));
+                        }
+                        tv.setTextColor(Color.parseColor("#616161"));
+                    }
+                    return true;
+                } else if (view.getId() == R.id.title) {
+                    android.widget.TextView tv = (android.widget.TextView) view;
+                    tv.setTextColor(mTitleColor);
+                    return false;
+                } else if (view.getId() == R.id.btn_pin) {
+                    int pinned = 0;
+                    try { pinned = cursor.getInt(columnIndex); } catch (Exception ignored) {}
+                    android.widget.TextView btn = (android.widget.TextView) view;
+                    btn.setText(pinned != 0 ? "取消置顶" : "置顶");
+                    View container = ((View) view.getParent());
+                    View iconView = container.findViewById(R.id.pin_icon);
+                    if (iconView instanceof android.widget.ImageView) {
+                        ((android.widget.ImageView) iconView).setImageResource(pinned != 0 ? R.drawable.ic_unpin : R.drawable.ic_pin);
+                    }
+                    int idCol = cursor.getColumnIndex(NotePad.Notes._ID);
+                    final long noteId = idCol != -1 ? cursor.getLong(idCol) : -1;
+                    final int pinnedValue = pinned;
+                    View.OnClickListener toggle = new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            ContentValues values = new ContentValues();
+                            values.put(NotePad.Notes.COLUMN_NAME_PINNED, pinnedValue != 0 ? 0 : 1);
+                            getContentResolver().update(ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, noteId), values, null, null);
+                            ((SimpleCursorAdapter) getListAdapter()).getCursor().requery();
+                        }
+                    };
+                    btn.setOnClickListener(toggle);
+                    container.setOnClickListener(toggle);
+                    if (iconView != null) iconView.setOnClickListener(toggle);
+                    return true;
+                }
+                return false;
+            }
+        });
+
         // Sets the ListView's adapter to be the cursor adapter that was just created.
         setListAdapter(adapter);
+
+        // Grid adapter for grid mode
+        GridView grid = (GridView) findViewById(R.id.grid_notes);
+        SimpleCursorAdapter gridAdapter = new SimpleCursorAdapter(
+                this,
+                R.layout.notesgrid_item,
+                cursor,
+                dataColumns,
+                viewIDs
+        );
+        gridAdapter.setViewBinder(adapter.getViewBinder());
+        grid.setAdapter(gridAdapter);
+
+        FilterQueryProvider filterProvider = new FilterQueryProvider() {
+            @Override
+            public Cursor runQuery(CharSequence constraint) {
+                Uri uri = getIntent().getData();
+                String selection = null;
+                String[] selectionArgs = null;
+                if (constraint != null && constraint.length() > 0) {
+                    String q = "%" + constraint.toString() + "%";
+                    selection = NotePad.Notes.COLUMN_NAME_TITLE + " LIKE ? OR "
+                            + NotePad.Notes.COLUMN_NAME_NOTE + " LIKE ?";
+                    selectionArgs = new String[]{ q, q };
+                }
+                return managedQuery(
+                        uri,
+                        PROJECTION,
+                        selection,
+                        selectionArgs,
+                        currentSortOrder()
+                );
+            }
+        };
+        adapter.setFilterQueryProvider(filterProvider);
+        gridAdapter.setFilterQueryProvider(filterProvider);
+
+        applySavedTheme();
+        applySavedLayoutMode();
+    }
+
+    private void applySavedLayoutMode() {
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        int mode = prefs.getInt("noteslist_layout", 0); // 0 list, 1 grid
+        GridView grid = (GridView) findViewById(R.id.grid_notes);
+        ListView list = getListView();
+        if (mode == 1) {
+            list.setVisibility(View.GONE);
+            grid.setVisibility(View.VISIBLE);
+        } else {
+            grid.setVisibility(View.GONE);
+            list.setVisibility(View.VISIBLE);
+        }
     }
 
     /**
@@ -166,6 +332,53 @@ public class NotesList extends ListActivity {
         menu.addIntentOptions(Menu.CATEGORY_ALTERNATIVE, 0, 0,
                 new ComponentName(this, NotesList.class), null, intent, 0, null);
 
+        MenuItem searchItem = menu.findItem(R.id.menu_search);
+        if (searchItem != null) {
+            View actionView = searchItem.getActionView();
+            if (actionView instanceof SearchView) {
+                SearchView searchView = (SearchView) actionView;
+                searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+                    @Override
+                    public boolean onQueryTextSubmit(String query) {
+                        ((SimpleCursorAdapter) getListAdapter()).getFilter().filter(query);
+                        return true;
+                    }
+
+                    @Override
+                    public boolean onQueryTextChange(String newText) {
+                        ((SimpleCursorAdapter) getListAdapter()).getFilter().filter(newText);
+                        return true;
+                    }
+                });
+            }
+        }
+        MenuItem layoutItem = menu.findItem(R.id.menu_layout);
+        if (layoutItem != null) {
+            layoutItem.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                @Override public boolean onMenuItemClick(MenuItem item) {
+                    showLayoutChooser();
+                    return true;
+                }
+            });
+        }
+        MenuItem sortItem = menu.findItem(R.id.menu_sort);
+        if (sortItem != null) {
+            sortItem.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                @Override public boolean onMenuItemClick(MenuItem item) {
+                    showSortChooser();
+                    return true;
+                }
+            });
+        }
+        MenuItem fontSizeItem = menu.findItem(R.id.menu_font_size);
+        if (fontSizeItem != null) {
+            fontSizeItem.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                @Override public boolean onMenuItemClick(MenuItem item) {
+                    showFontSizeChooser();
+                    return true;
+                }
+            });
+        }
         return super.onCreateOptionsMenu(menu);
     }
 
@@ -279,8 +492,74 @@ public class NotesList extends ListActivity {
              */
             startActivity(new Intent(Intent.ACTION_PASTE, getIntent().getData()));
             return true;
+        } else if (item.getItemId() == R.id.menu_change_theme) {
+            showThemeChooser();
+            return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    private void showLayoutChooser() {
+        final String[] items = new String[]{"列表模式", "宫格模式"};
+        new AlertDialog.Builder(this)
+                .setTitle("笔记表格布局")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+                        prefs.edit().putInt("noteslist_layout", which == 1 ? 1 : 0).apply();
+                        applySavedLayoutMode();
+                    }
+                })
+                .show();
+    }
+
+    private String currentSortOrder() {
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        int sort = prefs.getInt("noteslist_sort", 1);
+        String base = sort == 0 ? NotePad.Notes.COLUMN_NAME_CREATE_DATE : NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE;
+        return "pinned DESC, " + base + " DESC";
+    }
+
+    private void refreshAdaptersSorted() {
+        Uri uri = getIntent().getData();
+        Cursor cursor = managedQuery(uri, PROJECTION, null, null, currentSortOrder());
+        ((SimpleCursorAdapter) getListAdapter()).changeCursor(cursor);
+        GridView grid = (GridView) findViewById(R.id.grid_notes);
+        if (grid != null && grid.getAdapter() instanceof SimpleCursorAdapter) {
+            ((SimpleCursorAdapter) grid.getAdapter()).changeCursor(cursor);
+        }
+    }
+
+    private void showSortChooser() {
+        final String[] items = new String[]{"按创建日期排序", "按编辑日期排序"};
+        new AlertDialog.Builder(this)
+                .setTitle("排序方式")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+                        prefs.edit().putInt("noteslist_sort", which == 0 ? 0 : 1).apply();
+                        refreshAdaptersSorted();
+                    }
+                })
+                .show();
+    }
+
+    private void showFontSizeChooser() {
+        final String[] items = new String[]{"小", "默认", "大", "超大"};
+        final int[] sizes = new int[]{16, 22, 26, 30};
+        new AlertDialog.Builder(this)
+                .setTitle("文字大小")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+                        prefs.edit().putInt("note_font_size_sp", sizes[which]).apply();
+                        android.widget.Toast.makeText(NotesList.this, "已设置为" + items[which], android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .show();
     }
 
     /**
@@ -459,5 +738,65 @@ public class NotesList extends ListActivity {
             // Intent's data is the note ID URI. The effect is to call NoteEdit.
             startActivity(new Intent(Intent.ACTION_EDIT, uri));
         }
+    }
+
+    private void showThemeChooser() {
+        final String[] items = new String[]{"Light", "Dark", "Blue", "Green"};
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.menu_change_theme)
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        applyTheme(which);
+                        saveTheme(which);
+                    }
+                })
+                .show();
+    }
+
+    private void applySavedTheme() {
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        int which = prefs.getInt("noteslist_theme", 0);
+        applyTheme(which);
+    }
+
+    private void saveTheme(int which) {
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        prefs.edit().putInt("noteslist_theme", which).apply();
+    }
+
+    private void applyTheme(int which) {
+        int res;
+        int dividerColor;
+        switch (which) {
+            case 1:
+                res = R.drawable.bg_dark;
+                mTitleColor = Color.parseColor("#E0E0E0");
+                mTimestampColor = Color.parseColor("#B0BEC5");
+                dividerColor = Color.parseColor("#424242");
+                break;
+            case 2:
+                res = R.drawable.bg_blue;
+                mTitleColor = Color.parseColor("#212121");
+                mTimestampColor = Color.parseColor("#616161");
+                dividerColor = Color.parseColor("#90CAF9");
+                break;
+            case 3:
+                res = R.drawable.bg_green;
+                mTitleColor = Color.parseColor("#212121");
+                mTimestampColor = Color.parseColor("#616161");
+                dividerColor = Color.parseColor("#A5D6A7");
+                break;
+            default:
+                res = R.drawable.bg_light;
+                mTitleColor = Color.parseColor("#212121");
+                mTimestampColor = Color.parseColor("#616161");
+                dividerColor = Color.parseColor("#E0E0E0");
+        }
+        getListView().setBackgroundResource(res);
+        getListView().setCacheColorHint(Color.TRANSPARENT);
+        getListView().setDivider(new ColorDrawable(dividerColor));
+        getListView().setDividerHeight(1);
+        getListView().invalidateViews();
     }
 }

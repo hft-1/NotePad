@@ -31,6 +31,7 @@ import android.database.Cursor;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.AttributeSet;
@@ -39,6 +40,24 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.widget.EditText;
+import android.widget.TextView;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.SharedPreferences;
+import android.content.ContentUris;
+import android.widget.Toast;
+import android.text.StaticLayout;
+import android.text.TextWatcher;
+import android.text.Editable;
+import android.text.TextPaint;
+import android.text.Layout;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import android.graphics.Bitmap;
+import android.util.TypedValue;
 
 /**
  * This Activity handles "editing" a note, where editing is responding to
@@ -62,7 +81,8 @@ public class NoteEditor extends Activity {
         new String[] {
             NotePad.Notes._ID,
             NotePad.Notes.COLUMN_NAME_TITLE,
-            NotePad.Notes.COLUMN_NAME_NOTE
+            NotePad.Notes.COLUMN_NAME_NOTE,
+            NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE
     };
 
     // A label for the saved state of the activity
@@ -78,7 +98,11 @@ public class NoteEditor extends Activity {
     private Uri mUri;
     private Cursor mCursor;
     private EditText mText;
+    private EditText mTitleEdit;
+    private TextView mTimestampView;
+    private TextView mWordCountView;
     private String mOriginalContent;
+    private int mEditorTextColor;
 
     /**
      * Defines a custom EditText View that draws lines between each line of text that is displayed.
@@ -95,7 +119,7 @@ public class NoteEditor extends Activity {
             mRect = new Rect();
             mPaint = new Paint();
             mPaint.setStyle(Paint.Style.STROKE);
-            mPaint.setColor(0x800000FF);
+            mPaint.setColor(0x33000000);
         }
 
         /**
@@ -227,8 +251,26 @@ public class NoteEditor extends Activity {
         // Sets the layout for this Activity. See res/layout/note_editor.xml
         setContentView(R.layout.note_editor);
 
-        // Gets a handle to the EditText in the the layout.
+        mTitleEdit = (EditText) findViewById(R.id.title_edit);
+        mTimestampView = (TextView) findViewById(R.id.timestamp_view);
+        mWordCountView = (TextView) findViewById(R.id.word_count_view);
         mText = (EditText) findViewById(R.id.note);
+
+        mText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateInfoBar();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+
+        applySavedNoteTheme();
+        applySavedFontSize();
 
         /*
          * If this Activity had stopped previously, its state was written the ORIGINAL_CONTENT
@@ -237,6 +279,12 @@ public class NoteEditor extends Activity {
         if (savedInstanceState != null) {
             mOriginalContent = savedInstanceState.getString(ORIGINAL_CONTENT);
         }
+    }
+
+    private void applySavedFontSize() {
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        int sp = prefs.getInt("note_font_size_sp", 22);
+        mText.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
     }
 
     /**
@@ -266,7 +314,7 @@ public class NoteEditor extends Activity {
              */
             mCursor.moveToFirst();
 
-            // Modifies the window title for the Activity according to the current Activity state.
+            // Modifies the window title and fills title EditText according to the current state.
             if (mState == STATE_EDIT) {
                 // Set the title of the Activity to include the note title
                 int colTitleIndex = mCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_TITLE);
@@ -274,9 +322,11 @@ public class NoteEditor extends Activity {
                 Resources res = getResources();
                 String text = String.format(res.getString(R.string.title_edit), title);
                 setTitle(text);
+                if (mTitleEdit != null) mTitleEdit.setText(title);
             // Sets the title to "create" for inserts
             } else if (mState == STATE_INSERT) {
                 setTitle(getText(R.string.title_create));
+                if (mTitleEdit != null) mTitleEdit.setText("");
             }
 
             /*
@@ -297,6 +347,8 @@ public class NoteEditor extends Activity {
                 mOriginalContent = note;
             }
 
+            updateInfoBar();
+
         /*
          * Something is wrong. The Cursor should always contain data. Report an error in the
          * note.
@@ -304,6 +356,28 @@ public class NoteEditor extends Activity {
         } else {
             setTitle(getText(R.string.error_title));
             mText.setText(getText(R.string.error_message));
+            updateInfoBar();
+        }
+    }
+
+    private void updateInfoBar() {
+        if (mTimestampView != null) {
+            long ts = 0;
+            if (mCursor != null) {
+                int idx = mCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE);
+                if (idx != -1) {
+                    try { ts = mCursor.getLong(idx); } catch (Exception ignored) {}
+                }
+            }
+            if (ts <= 0) ts = System.currentTimeMillis();
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy/M/d HH：mm", java.util.Locale.getDefault());
+            String formatted = sdf.format(new java.util.Date(ts));
+            mTimestampView.setText(formatted);
+        }
+        if (mWordCountView != null && mText != null) {
+            String t = mText.getText().toString();
+            int count = t.length();
+            mWordCountView.setText(count + "字");
         }
     }
 
@@ -366,12 +440,6 @@ public class NoteEditor extends Activity {
                  * onCreate() inserted a new empty note into the provider, and it is this new note
                  * that is being edited.
                  */
-            } else if (mState == STATE_EDIT) {
-                // Creates a map to contain the new values for the columns
-                updateNote(text, null);
-            } else if (mState == STATE_INSERT) {
-                updateNote(text, text);
-                mState = STATE_EDIT;
           }
         }
     }
@@ -437,13 +505,24 @@ public class NoteEditor extends Activity {
         int id = item.getItemId();
         if(id== R.id.menu_save) {
             String text = mText.getText().toString();
-            updateNote(text, null);
+            String titleInput = mTitleEdit != null ? mTitleEdit.getText().toString().trim() : null;
+            String titleArg = (titleInput != null && titleInput.length() > 0) ? titleInput : null;
+            updateNote(text, titleArg);
+            if (mState == STATE_INSERT) {
+                mState = STATE_EDIT;
+            }
             finish();
         } else if (id == R.id.menu_delete) {
             deleteNote();
             finish();
         } else if (id == R.id.menu_revert) {
             cancelNote();
+        } else if (id == R.id.menu_change_note_theme) {
+            showNoteThemeChooser();
+            return true;
+        } else if (id == R.id.menu_export_note) {
+            showExportChooser();
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -577,6 +656,178 @@ public class NoteEditor extends Activity {
             );
 
 
+    }
+
+    private void showNoteThemeChooser() {
+        final String[] items = new String[]{"Light", "Dark", "Blue", "Green"};
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.menu_change_note_theme)
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        applyNoteTheme(which);
+                        saveNoteTheme(which);
+                    }
+                })
+                .show();
+    }
+
+    private void applySavedNoteTheme() {
+        if (mUri == null) return;
+        long id = ContentUris.parseId(mUri);
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        int which = prefs.getInt("note_theme_" + id, 0);
+        applyNoteTheme(which);
+    }
+
+    private void saveNoteTheme(int which) {
+        long id = ContentUris.parseId(mUri);
+        SharedPreferences prefs = getSharedPreferences("notepad_prefs", MODE_PRIVATE);
+        prefs.edit().putInt("note_theme_" + id, which).apply();
+    }
+
+    private void applyNoteTheme(int which) {
+        int res;
+        int infoColor;
+        switch (which) {
+            case 1:
+                res = R.drawable.bg_dark;
+                mEditorTextColor = Color.parseColor("#FFFFFF");
+                infoColor = Color.parseColor("#212121");
+                break;
+            case 2:
+                res = R.drawable.bg_blue;
+                mEditorTextColor = Color.parseColor("#212121");
+                infoColor = mEditorTextColor;
+                break;
+            case 3:
+                res = R.drawable.bg_green;
+                mEditorTextColor = Color.parseColor("#212121");
+                infoColor = mEditorTextColor;
+                break;
+            default:
+                res = R.drawable.bg_light;
+                mEditorTextColor = Color.parseColor("#212121");
+                infoColor = mEditorTextColor;
+        }
+        mText.setBackgroundResource(res);
+        mText.setTextColor(mEditorTextColor);
+        if (mTitleEdit != null) mTitleEdit.setTextColor(infoColor);
+        if (mTimestampView != null) mTimestampView.setTextColor(infoColor);
+        if (mWordCountView != null) mWordCountView.setTextColor(infoColor);
+    }
+
+    private void showExportChooser() {
+        final String[] items = new String[]{"Export as TXT", "Export as Image", "Export as Markdown"};
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.menu_export_note)
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) {
+                            exportTxt();
+                        } else if (which == 1) {
+                            exportImage();
+                        } else if (which == 2) {
+                            exportMarkdown();
+                        }
+                    }
+                })
+                .show();
+    }
+
+    private String getCurrentTitle() {
+        if (mCursor != null) {
+            int idx = mCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_TITLE);
+            if (idx != -1) {
+                return mCursor.getString(idx);
+            }
+        }
+        return "note";
+    }
+
+    private String safeName(String s) {
+        String n = s == null ? "note" : s.trim();
+        n = n.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (n.length() == 0) n = "note";
+        return n;
+    }
+
+    private File getExportDir() {
+        File dir = getExternalFilesDir("exports");
+        if (dir != null && !dir.exists()) dir.mkdirs();
+        return dir != null ? dir : getFilesDir();
+    }
+
+    private void exportTxt() {
+        String title = getCurrentTitle();
+        String text = mText.getText().toString();
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        File out = new File(getExportDir(), safeName(title) + "_" + ts + ".txt");
+        try {
+            FileOutputStream fos = new FileOutputStream(out);
+            OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
+            osw.write(text);
+            osw.flush();
+            osw.close();
+            Toast.makeText(this, "Exported: " + out.getAbsolutePath(), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Export failed", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private int dp(int v) {
+        float d = getResources().getDisplayMetrics().density;
+        return (int) (v * d + 0.5f);
+    }
+
+    private void exportImage() {
+        String title = getCurrentTitle();
+        String text = mText.getText().toString();
+        int width = mText.getWidth();
+        if (width <= 0) width = getResources().getDisplayMetrics().widthPixels - dp(16);
+        TextPaint tp = new TextPaint();
+        tp.setColor(mEditorTextColor != 0 ? mEditorTextColor : Color.parseColor("#212121"));
+        tp.setTextSize(mText.getTextSize());
+        StaticLayout layout = new StaticLayout(text, tp, width - dp(32), Layout.Alignment.ALIGN_NORMAL, 1.3f, 0, false);
+        int bmpW = width;
+        int bmpH = layout.getHeight() + dp(32);
+        Bitmap bmp = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
+        canvas.drawColor(Color.WHITE);
+        canvas.save();
+        canvas.translate(dp(16), dp(16));
+        layout.draw(canvas);
+        canvas.restore();
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        File out = new File(getExportDir(), safeName(title) + "_" + ts + ".png");
+        try {
+            FileOutputStream fos = new FileOutputStream(out);
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+            fos.flush();
+            fos.close();
+            Toast.makeText(this, "Exported: " + out.getAbsolutePath(), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Export failed", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void exportMarkdown() {
+        String title = getCurrentTitle();
+        String text = mText.getText().toString();
+        String md = "# " + title + "\n\n" + text + "\n";
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        File out = new File(getExportDir(), safeName(title) + "_" + ts + ".md");
+        try {
+            FileOutputStream fos = new FileOutputStream(out);
+            OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
+            osw.write(md);
+            osw.flush();
+            osw.close();
+            Toast.makeText(this, "Exported: " + out.getAbsolutePath(), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Export failed", Toast.LENGTH_LONG).show();
+        }
     }
 
     /**

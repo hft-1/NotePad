@@ -523,6 +523,9 @@ public class NoteEditor extends Activity {
         } else if (id == R.id.menu_export_note) {
             showExportChooser();
             return true;
+        } else if (id == R.id.menu_send_to_home) {
+            showSendToHomeChooser();
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -828,6 +831,62 @@ public class NoteEditor extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "Export failed", Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void showSendToHomeChooser() {
+        final String[] items = new String[]{"小尺寸", "中尺寸", "大尺寸"};
+        new AlertDialog.Builder(this)
+                .setTitle("发送到桌面")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        int w;
+                        int h;
+                        int sp;
+                        if (which == 0) { w = dp(48); h = dp(48); sp = 12; }
+                        else if (which == 1) { w = dp(72); h = dp(72); sp = 14; }
+                        else { w = dp(96); h = dp(96); sp = 16; }
+                        createDesktopShortcut(w, h, sp);
+                    }
+                })
+                .show();
+    }
+
+    private void createDesktopShortcut(int width, int height, int sp) {
+        String title = getCurrentTitle();
+        String text = mText.getText().toString();
+        android.text.TextPaint tpTitle = new android.text.TextPaint();
+        tpTitle.setColor(Color.parseColor("#212121"));
+        tpTitle.setTextSize(sp + 4);
+        android.text.TextPaint tpBody = new android.text.TextPaint();
+        tpBody.setColor(Color.parseColor("#212121"));
+        tpBody.setTextSize(sp);
+        int contentWidth = width - dp(16);
+        StaticLayout layoutTitle = new StaticLayout(title, tpTitle, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0, false);
+        StaticLayout layoutBody = new StaticLayout(text, tpBody, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.3f, 0, false);
+        // Many launchers expect icons up to ~96dp; cap to avoid failures
+        int max = dp(96);
+        if (width > max) width = max;
+        if (height > max) height = max;
+        Bitmap bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
+        canvas.drawColor(Color.WHITE);
+        canvas.save();
+        canvas.translate(dp(8), dp(8));
+        layoutTitle.draw(canvas);
+        canvas.translate(0, layoutTitle.getHeight() + dp(6));
+        layoutBody.draw(canvas);
+        canvas.restore();
+
+        Intent launch = new Intent(Intent.ACTION_EDIT, mUri);
+        launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Intent shortcut = new Intent("com.android.launcher.action.INSTALL_SHORTCUT");
+        shortcut.putExtra(Intent.EXTRA_SHORTCUT_INTENT, launch);
+        shortcut.putExtra(Intent.EXTRA_SHORTCUT_NAME, title);
+        shortcut.putExtra(Intent.EXTRA_SHORTCUT_ICON, bmp);
+        shortcut.putExtra("duplicate", false);
+        sendBroadcast(shortcut);
+        Toast.makeText(this, "已发送到桌面", Toast.LENGTH_LONG).show();
     }
 
     /**

@@ -20,4 +20,8 @@
           android:icon="@drawable/ic_menu_save"
           android:title="@string/menu_export_note"
           android:showAsAction="never" />
+    <item android:id="@+id/menu_send_to_home"
+          android:icon="@drawable/ic_menu_edit"
+          android:title="发送到桌面"
+          android:showAsAction="never" />
 </menu>
